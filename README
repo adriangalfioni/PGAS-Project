@@ -1,0 +1,132 @@
+-------------------------------------------------------------------
+Telecomunicaciones y Sistemas Distiribuidos
+
+Estudiante: Adrián Galfioni
+
+Lenguaje utilizado: Java
+-------------------------------------------------------------------
+
+\\ Instrucciones de uso:
+
+- Dar permisos de ejecución a generateJar.sh y executeExampleRunning.sh
+- Ejecutar generateJar.sh, en caso de compilación exitosa creará el archivo modelPGAS.jar retornando los parámetros
+  para poder ejecutar el programa, a ser;
+
+  	LEADER_PROCESS_IP: IP del proceso lider.
+  	LEADER_PROCESS_PORT: Puerto del proceso lider.
+  	PROCESS_ID: ID a asignar al proceso (si es igual a 0 el proceso será el lider).
+  	GLOBAL_ARRAY_SIZE: Tamaño del arreglo global.
+  	PROCESS_QUANTITY: Cantidad de procesos entre los que se distribuirá el arreglo.
+
+- Una vez creado el archivo modelPGAS.jar, se puede ejecutar executeExampleRunning.sh para ejecutar el proyecto
+  con las siguientes posibilidades;
+
+  	- Ejecutar executeExampleRunning.sh con los argumentos LEADER_PROCESS_IP y LEADER_PROCESS_PORT
+  	  ejemplo: "./executeExampleRunning.sh 192.168.0.82 9876", el cual ejecutara 4 instancias en segundo plano
+  	  que odenan un arreglo global de dimension 1000.
+
+  	- Ejecutar executeExampleRunning.sh con los argumentos LEADER_PROCESS_IP, LEADER_PROCESS_PORT, GLOBAL_ARRAY_SIZE
+  	  y PROCESS_QUANTITY, ejemplo: "./executeExampleRunning.sh 192.168.0.82 9876 1000 4", el cual ejecutara PROCESS_QUANTITY
+  	  instancias en segundo plano que odenan un arreglo global de dimension GLOBAL_ARRAY_SIZE.
+  
+- En caso de ejecución exitosa, en la misma carpeta se creará un archivo por proceso que contendrá el arreglo local antes
+  y después de ser ordenado (los archivos tendran como nombre el número de proceso, ej; 0, 1, ... , etc).
+
+-------------------------------------------------------------------
+
+\\ Documentación del proyecto:
+
+
+- Problema a resolver: 
+
+    Se requiere el desarrollo de una simple estructura de datos y primitivas de sincronización que permita implementar
+    el modelo de programación Partitioned Global Address Space (PGAS) en una arquitectura en red (multicomputadora),
+    ocultando los detalles de comunicación entre procesos.
+    Además, para una mejor y simple implementación, se deberı́a definir una capa de abstracción de manejo de mensajes
+    que corra en el contexto de un thread de cada proceso y provea las facilidades de transmisión, recepción y entrega
+    de mensajes al proceso.
+    El objetivo es ordenar todas las porciones de un arreglo global de manera creciente.
+
+
+- Estrategia de solución utilizada:
+
+    Se implemento un sistema distribuido, es decir, un conjunto de procesos que resuelven el problema en forma
+    cooperativa. Como mecanismo de sincronización y coordinación se utilizó la elección de un coordinador (leader).
+
+    Se diseño e implemento una estructura de datos de tipo 'distributed array', que distrubuye en bloques
+    uniformes entre los procesos intervinientes. Además se define una capa de abstracción de manejo de
+    mensajes que corre en el contexto de un thread de cada proceso y provee las facilidades de transmisión,
+    recepción y entrega de mensajes al proceso. El acceso a la memoria remota se realiza por medio de mensajes y
+    además se cuenta con operaciones de comunicación global que requieren el intercambio de mensajes entre todos
+    los procesos.
+
+
+- Lógica de funcionamiento / diseño:
+
+ 1) El arreglo distribuido se divide entre todos los procesos intervinientes de manera uniforme. Cada uno de estos
+    procesos contaran con una capa (Middleware) que permite homogeneizar las comunicaciones y provee una visión
+    uniforme del sistema.
+
+ 2) Se designa al primer proceso como lider/coordinador, el mismo esperará hasta que todos los procesos inicien
+    (conoce la cantidad total de procesos intervinientes) y envíen su dirección IP y puerto.
+    A medida que cada proceso inicia, envía sus datos a través de un mensaje al coordinador y espera la lista con
+    todas las direcciones. Cuando el lider recibe todas las direcciones se las envía a el resto de los procesos,
+    este es el primer punto de sincronización para garantizar las relaciones específicas de precedencia impuestas
+    por el problema que se resuelve.
+
+ 3) Luego cada proceso se encarga de ordenar su porción del arreglo de manera creciente y una vez realizado llega
+    a otro punto de sincronización (el barrier), cada proceso no lider avisa a este último la llegada a este punto
+    y cuando todos lo hayan hecho el lider envía un mensaje a cada uno para que continuen con la ejecución.
+
+ 4) A partir de este momento, todos los procesos excepto el último controlan si en su última posición del arreglo
+    el elemento es mayor al que se encuentra en la primera posición del arreglo del siguiente proceso, en caso
+    positivo procede a realizar un intercambio de estos valores (swap). Para acceder a elementos que no se encuentran
+    en su arreglo local utilizan al Middleware que actua como dispacher de operaciones, tanto para la lectura como
+    escritura de valores.
+
+ 5) Por último, se accede al último punto de sincronización (and_reduce(v)), el cual genera una reducción de los valores
+    de las copias locales de v (que indican si fue necesario realizar un intercambio de valores) aplicando la operación
+    lógica and. El proceso lider espera la recepción de un mensaje por cada proceso con su valor v local y al hacer la
+    reducción con todos esos valores y el propio determina si el arreglo global está ordenado o hay que repetir el proceso.
+    El lider notifica el resultado de la reducción al resto de los procesos, lo cual determina si todos los procesos
+    continuan con la ejecución desde el paso 3) o si el arreglo global quedo ordenado y se resolvió el problema.
+
+
+    Clases intervinientes:
+
+    *Sorter: se encarga de inicializar la información del proceso lider y corriente, comenzar la ejecución del Thread que
+    se encarga del manejo de mensajes, inicializar la estructura de datos distribuida y ejecutar el algoritmo que ordena
+    el arreglo de manera distribuida.
+
+    *MiddlewareUDP: provee facilidades para enviar y recibir mensajes entre procesos y entregar requerimientos de lectura
+    y escritura de la estructura de datos distribuida. Encapsula el protocolo de transporte utilizado (UDP) y provee una
+    visión uniforme del sistema.
+
+    *DistributedArray: representa una estructira de datos de tipo distribuida que divide el arreglo global en partes uniformes
+    para cada proceso interviniente. Utiliza al Middleware para entregar y recibir requerimientos de lectura o escritura de
+    elementos del arreglo que no se encuentren en su porción local.
+
+    *Messages: define los mensajes posibles a ser intercambiados entre los procesos.
+
+    *IPAddress: encapsula la dirección IP y puerto que utiliza cada proceso para obtener un socket y enviar y recibir paquetes.
+
+    
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
